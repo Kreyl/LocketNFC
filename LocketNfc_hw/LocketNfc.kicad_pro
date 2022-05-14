@@ -45,7 +45,7 @@
         "silk_text_upright": false,
         "zones": {
           "45_degree_only": false,
-          "min_clearance": 0.508
+          "min_clearance": 0.26999999999999996
         }
       },
       "diff_pair_dimensions": [
@@ -363,9 +363,9 @@
         "name": "Default",
         "pcb_color": "rgba(0, 0, 0, 0.000)",
         "schematic_color": "rgba(0, 0, 0, 0.000)",
-        "track_width": 0.25,
-        "via_diameter": 0.8,
-        "via_drill": 0.4,
+        "track_width": 0.15,
+        "via_diameter": 0.7,
+        "via_drill": 0.3,
         "wire_width": 6.0
       },
       {
@@ -389,13 +389,14 @@
           "/+PWR_MID",
           "/+PWR_NFC",
           "/VIBRO_OUT",
-          "GND"
+          "GND",
+          "VCC"
         ],
         "pcb_color": "rgba(0, 0, 0, 0.000)",
         "schematic_color": "rgba(0, 0, 0, 0.000)",
-        "track_width": 0.25,
-        "via_diameter": 0.8,
-        "via_drill": 0.4,
+        "track_width": 0.5,
+        "via_diameter": 0.7,
+        "via_drill": 0.3,
         "wire_width": 11.811023622047244
       }
     ],
@@ -409,7 +410,7 @@
       "gencad": "",
       "idf": "",
       "netlist": "",
-      "specctra_dsn": "",
+      "specctra_dsn": "LocketNfc.dsn",
       "step": "",
       "vrml": ""
     },
