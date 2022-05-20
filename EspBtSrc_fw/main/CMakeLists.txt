@@ -1,4 +1,6 @@
 idf_component_register(SRCS "kl_uart.c"
+							"kl_bt.c"
+							"bt_app_core.c"
                             "main.c"
                     INCLUDE_DIRS ".")
 

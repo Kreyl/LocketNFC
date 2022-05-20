@@ -228,6 +228,7 @@ static void IVsPrintf(const char *format, va_list args) {
             }
             break;
 
+            case 'x':
             case 'X':
                 if(IPutUint(va_arg(args, uint32_t), 16, width, filler) != retvOk) goto End;
                 break;

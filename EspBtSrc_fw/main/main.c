@@ -3,28 +3,20 @@
 #include "esp_system.h"
 #include "esp_log.h"
 #include "esp_event.h"
-//#include "nvs_flash.h"
+#include "nvs_flash.h"
 
-#include "driver/gpio.h"
-#include "driver/uart.h"
+//#include "driver/gpio.h"
+//#include "driver/uart.h"
 
 #include "config.h"
 #include "kl_uart.h"
+#include "kl_bt.h"
 #include "EvtQMain.h"
 #include "EvtMsgIDs.h"
 
 esp_err_t event_handler(void *ctx, system_event_t *event) {
     return ESP_OK;
 }
-
-//static void tx_task(void *arg) {
-//    static const char *TX_TASK_TAG = "TX_TASK";
-//    esp_log_level_set(TX_TASK_TAG, ESP_LOG_INFO);
-//    while(1) {
-//        uart_write_bytes(UART_NUM_1, "aga\r", 4);
-//        vTaskDelay(1000 / portTICK_PERIOD_MS);
-//    }
-//}
 
 //static void MainTask(void *arg) {
 //    static const char *TAG = "MAIN_TASK";
@@ -38,18 +30,22 @@ esp_err_t event_handler(void *ctx, system_event_t *event) {
 //}
 
 
-
 void app_main(void) {
+    // Initialize NVS.
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK( ret );
+
     // Create main Q
-    MainQ = xQueueCreate(MAIN_Q_LEN, sizeof(EvtMsg_t));
-
+//    MainQ = xQueueCreate(MAIN_Q_LEN, sizeof(EvtMsg_t));
     UartInit();
+    BTInit();
+
 //    xTaskCreate(MainTask, "MainTask", 1024, NULL, 4, NULL); // Priority=4
-
-
 //    xTaskCreate(tx_task, "uart_tx_task", 1024 * 2, NULL, configMAX_PRIORITIES - 1, NULL);
-
-
 }
 
 void OnCmd() {
@@ -68,5 +64,13 @@ void OnCmd() {
             }
         }
         else CmdReplyBadParam();
+    }
+
+    else if(CmdNameIs("Discover")) BTStartDiscovery();
+    else if(CmdNameIs("StopDiscover")) BTStopDiscovery();
+
+    else if(CmdNameIs("Disconnect")) {
+        BTDisconnect();
+        CmdReplyOk();
     }
 }
