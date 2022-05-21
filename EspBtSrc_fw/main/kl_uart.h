@@ -18,6 +18,7 @@ char* CmdGetName();
 uint8_t CmdGetNextString(char **PStr);
 uint8_t CmdGetNextUint32(uint32_t *ptr);
 uint8_t CmdGetNextInt32(int32_t *ptr);
+uint8_t CmdGetArrUint8(uint8_t *pArr, uint32_t ALen);
 
 
 void CmdReplyOk();

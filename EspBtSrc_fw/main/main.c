@@ -66,9 +66,16 @@ void OnCmd() {
         else CmdReplyBadParam();
     }
 
+    else if(CmdNameIs("GetState")) Printf("State: %u\r\n", BTGetState());
+
     else if(CmdNameIs("Discover")) BTStartDiscovery();
     else if(CmdNameIs("StopDiscover")) BTStopDiscovery();
 
+    else if(CmdNameIs("Connect")) {
+        uint8_t BTAddr[6];
+        if(CmdGetArrUint8(BTAddr, 6) == retvOk) BTConnect(BTAddr);
+        else CmdReplyBadParam();
+    }
     else if(CmdNameIs("Disconnect")) {
         BTDisconnect();
         CmdReplyOk();

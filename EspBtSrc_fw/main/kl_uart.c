@@ -33,7 +33,7 @@ void ParseCmd() {
 //    ESP_LOGI(TAG, "Cmd: %s, Sz: %d", CmdBuf, CmdBufSz);
     S = CmdBuf;
     SkipLeadingWhitespaces();
-    CmdName = strtok(S, DELIMITERS);
+    CmdName = strtok_r(S, DELIMITERS, &S);
     if(CmdName && *CmdName != '\0') OnCmd();
 }
 
@@ -43,13 +43,13 @@ bool CmdNameIs(const char *SCmd) { return (strcasecmp(CmdName, SCmd) == 0); }
 char* CmdGetName() { return CmdName; }
 
 uint8_t CmdGetNextString(char **PStr) {
-    Token = strtok(NULL, DELIMITERS);
+    Token = strtok_r(S, DELIMITERS, &S);
     if(PStr != NULL) *PStr = Token;
     return (Token != NULL &&  *Token != '\0')? retvOk : retvEmpty;
 }
 
 static uint8_t GetNextString() {
-    Token = strtok(NULL, DELIMITERS);
+    Token = strtok_r(S, DELIMITERS, &S);
     return (Token != NULL &&  *Token != '\0')? retvOk : retvEmpty;
 }
 
@@ -65,6 +65,21 @@ uint8_t CmdGetNextInt32(int32_t *ptr) {
     char *p;
     *ptr = strtol(Token, &p, 0);
     return (*p == '\0') ? retvOk : retvNotANumber;
+}
+
+uint8_t CmdGetArrUint8(uint8_t *pArr, uint32_t ALen) {
+    if(GetNextString() != retvOk) return retvEmpty;
+    char ByteStrBuf[5] = "0x00";
+    char *ArrStr = Token;
+    for(uint32_t i=0; i<ALen; i++) {
+        ByteStrBuf[2] = *ArrStr++;
+        ByteStrBuf[3] = *ArrStr++;
+        ArrStr++; // skip delimiter
+        char *p;
+        *pArr++ = strtoul(ByteStrBuf, &p, 0);
+        if(*p != '\0') return retvFail;
+    }
+    return retvOk;
 }
 
 
