@@ -138,7 +138,7 @@ static void ProcessInquiryScanRslt(esp_bt_gap_cb_param_t *param) {
     ESP_LOGI(BT_AV_TAG, "Addr: %s, Class: 0x%x, RSSI: %d, Name: \"%s\"", AddrStr, cod, rssi, DevName);
     // Is it valid addr? Search for device with MAJOR service class as "rendering" in COD
     if (esp_bt_gap_is_valid_cod(cod) && (esp_bt_gap_get_cod_srvc(cod) & ESP_BT_COD_SRVC_RENDERING)) {
-        Printf("Addr: %s, Class: 0x%x, RSSI: %d, Name: \"%s\"\r\n", AddrStr, cod, rssi, DevName);
+        Printf("Found %s %d \"%s\"\r\n", AddrStr, rssi, DevName);
     }
 }
 
@@ -287,6 +287,7 @@ static void bt_app_av_state_connecting(uint16_t event, void *param) {
                 ESP_LOGI(BT_AV_TAG, "a2dp connected");
                 A2D_State =  APP_AV_STATE_CONNECTED;
                 s_media_state = APP_AV_MEDIA_STATE_IDLE;
+                Printf("Connected\r\n");
             }
             else if(a2d->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
                 A2D_State =  APP_AV_STATE_UNCONNECTED;
@@ -374,7 +375,7 @@ static void ProcessAvMedia(uint16_t event, void *param) {
             if(event == ESP_A2D_MEDIA_CTRL_ACK_EVT) {
                 if(a2d->media_ctrl_stat.cmd == ESP_A2D_MEDIA_CTRL_START && a2d->media_ctrl_stat.status == ESP_A2D_MEDIA_CTRL_ACK_SUCCESS) {
                     ESP_LOGI(BT_AV_TAG, "a2dp media start ok");
-                    Printf("Connected\r\n"); // report to host
+                    Printf("MediaOk\r\n"); // report to host
                     s_intv_cnt = 0;
                     s_media_state = APP_AV_MEDIA_STATE_STARTED;
                 }
