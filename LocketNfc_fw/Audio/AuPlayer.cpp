@@ -1,185 +1,54 @@
-#include "AuPlayer.h"
-#include "kl_lib.h"
-#include "shell.h"
+#include <AUPlayer.h>
+#include "audiomixer.h"
 #include "MsgQ.h"
-#include "kl_sd.h"
-
-//#define DBG_PINS
-
-#ifdef DBG_PINS
-#define DBG_GPIO1   GPIOB
-#define DBG_PIN1    13
-#define DBG1_SET()  PinSetHi(DBG_GPIO1, DBG_PIN1)
-#define DBG1_CLR()  PinSetLo(DBG_GPIO1, DBG_PIN1)
-#else
-#define DBG1_SET()
-#define DBG1_CLR()
-#endif
+#include "kl_fs_utils.h"
+#include "SAI.h"
 
 AuPlayer_t AuPlayer;
 
-union EvtMsgAudio_t {
-    uint32_t DWord[2];
+#define PRINT_FUNC()    Printf("snd: %S\r", __FUNCTION__)
+
+std::string FNameAlive = "alive.wav";
+
+#if 1 // ============================ SndCmd ===================================
+enum SndCmd_t : uint8_t {
+    sndcmdNone, sndcmdStart, sndCmdVolume,
+    sndcmdStop, sndcmdPrepareNextBuf
+};
+
+union SndMsg_t {
+    uint32_t DWord[3];
     struct {
-        char* Filename;
-        PlayMode_t Mode : 8;
-        uint8_t ID;
-    } __attribute__((__packed__));
-    EvtMsgAudio_t& operator = (const EvtMsg_t &Right) {
+        SndCmd_t Cmd;
+        union {
+            struct {
+                uint8_t Slot;
+                uint16_t Volume;
+                std::string *PFName;
+                bool Repeat;
+                uint8_t EvtID;
+            } __packed;
+        };
+    } __packed;
+    SndMsg_t& operator = (const SndMsg_t &Right) {
         DWord[0] = Right.DWord[0];
         DWord[1] = Right.DWord[1];
+        DWord[2] = Right.DWord[2];
         return *this;
     }
-    EvtMsgAudio_t() : Filename(nullptr), ID(0) {}
-    EvtMsgAudio_t(uint8_t AID) : ID(AID) {}
-    EvtMsgAudio_t(uint8_t AID, char *AFilename, PlayMode_t AMode) : Filename(AFilename), Mode(AMode), ID(AID) {}
-} __attribute__((__packed__));
+    SndMsg_t() : Cmd(sndcmdNone) {}
+    SndMsg_t(SndCmd_t ACmd) : Cmd(ACmd) {}
+    SndMsg_t(SndCmd_t ACmd, uint8_t ASlot) : Cmd(ACmd), Slot(ASlot) {}
+    SndMsg_t(SndCmd_t ACmd, uint8_t ASlot, uint16_t AVolume) : Cmd(ACmd), Slot(ASlot), Volume(AVolume) {}
+    SndMsg_t(SndCmd_t ACmd, uint8_t ASlot, std::string* AFName, bool ARepeat, uint8_t AEvtID = 0) :
+        Cmd(ACmd), Slot(ASlot), PFName(AFName), Repeat(ARepeat), EvtID(AEvtID) {}
+} __packed;
 
-static EvtMsgQ_t<EvtMsgAudio_t, MAIN_EVT_Q_LEN> EvtQAudio;
-enum AudioEvt_t {aevtPlay, aevtNewBufReqd, aevtOnSoundSwitch};
-static thread_reference_t ThdRef;
+static EvtMsgQ_t<SndMsg_t, 18> MsgQSnd;
+#endif
 
-// DMA Tx Completed IRQ
-void IDmaSAITxIrq() { AuPlayer.IHandleIrq(); }
-
-void AuPlayer_t::IHandleIrq() {
-    PCurBuf = (PCurBuf == &ICurSnd->Buf1)? &ICurSnd->Buf2 : &ICurSnd->Buf1;
-//    PrintfI("%u\r", PCurBuf->Sz);
-    if(PCurBuf->Sz == 0) {  // End of file, start next
-        // Play next if needed
-        ISwitchSnds();
-        PCurBuf = &ICurSnd->Buf1;
-        if(PCurBuf->Sz != 0) TransmitBuf(PCurBuf);
-        EvtQAudio.SendNowOrExitI(EvtMsgAudio_t(aevtOnSoundSwitch));
-    } // if Sz == 0
-    else {
-        TransmitBuf(PCurBuf);
-        EvtMsgAudio_t Msg(aevtNewBufReqd);
-        EvtQAudio.SendNowOrExitI(Msg);
-    }
-}
-
-// Thread
-static THD_WORKING_AREA(waAudioThread, 1024);   // Hangs with long file names when less than 1024 bytes here
-__noreturn
-static void AudioThread(void *arg) {
-    chRegSetThreadName("Audio");
-    AuPlayer.ITask();
-}
-
-__noreturn
-void AuPlayer_t::ITask() {
-    while(true) {
-        EvtMsgAudio_t Msg = EvtQAudio.Fetch(TIME_INFINITE);
-        if(!SD.IsReady) {
-            EvtQMain.SendNowOrExit(EvtMsg_t(evtIdAudioPlayStop));
-            continue;
-        }
-        switch(Msg.ID) {
-            case aevtNewBufReqd: {
-                SndBuf_t *PBufToFill;
-                PBufToFill = (PCurBuf == &ICurSnd->Buf1)? &ICurSnd->Buf2 : &ICurSnd->Buf1;
-                ICurSnd->ReadToBuf(PBufToFill);
-                if(PBufToFill->Sz == 0 and (INextSnd->Buf1.Sz == 0 or !INextSnd->IsSoundFx)) {
-                    // Wait Irq
-//                    while(Codec.IsTransmitting()) chThdSleepMilliseconds(1);
-//                    Codec.Stop();
-
-                    EvtQMain.SendNowOrExit(EvtMsg_t(evtIdAudioPlayStop));
-                    // Wake waiting thread if any
-                    chThdResume(&ThdRef, MSG_OK);   // NotNull check performed inside chThdResume
-                }
-            } break;
-
-            case aevtPlay:
-                IPlayNext(Msg.Filename, Msg.Mode);
-                break;
-
-            case aevtOnSoundSwitch:
-//                Codec.SetupSampleRate(ICurSnd->Track.samplingRate());
-                break;
-        } // switch
-    } // while true
-}
-
-void AuPlayer_t::IPlayNext(const char* AFName, PlayMode_t AMode) {
-    bool WasPlaying = ICurSnd->IsPlaying();
-    // Fade current sound
-    IPrepareToPlayNext(AFName, AMode);
-    if(WasPlaying) ICurSnd->FadeOut();
-}
-
-void AuPlayer_t::Init() {
-#ifdef DBG_PINS
-    PinSetupOut(DBG_GPIO1, DBG_PIN1, omPushPull);
-#endif    // Init radioIC
-    EvtQAudio.Init();
-    chThdCreateStatic(waAudioThread, sizeof(waAudioThread), NORMALPRIO, (tfunc_t)AudioThread, NULL);
-}
-
-// Prepare next sound
-void AuPlayer_t::IPrepareToPlayNext(const char* AFName, PlayMode_t AMode) {
-    if(INextSnd->TryOpenFile(AFName) == retvOk) {
-        if(INextSnd->Start(AMode) == retvOk) {
-            INextSnd->IsSoundFx = true;
-            // Fill both buffers
-            INextSnd->ReadToBuf(&INextSnd->Buf1);
-            INextSnd->ReadToBuf(&INextSnd->Buf2);
-            // If not playing, play immediately
-            if(!ICurSnd->IsPlaying()) {
-                ISwitchSnds();
-                PCurBuf = &ICurSnd->Buf1;
-                TransmitBuf(PCurBuf);
-                EvtQAudio.SendNowOrExit(EvtMsgAudio_t(aevtOnSoundSwitch));
-            }
-        }
-    }
-    else {
-        Printf("Open %S failed\r", AFName);
-        EvtQMain.SendNowOrExit(EvtMsg_t(evtIdAudioPlayStop));
-        // Wake waiting thread if any
-        chThdResume(&ThdRef, MSG_OK);   // NotNull check performed inside chThdResume
-    }
-}
-
-void AuPlayer_t::Play(const char* AFName, PlayMode_t Mode) {
-//    Codec.SaiDmaCallbackI = IDmaSAITxIrq;
-    if(AFName == nullptr) return;
-    EvtMsgAudio_t Msg(aevtPlay, (char*)AFName, Mode);
-    EvtQAudio.SendNowOrExit(Msg);
-}
-
-void AuPlayer_t::Stop() {    ICurSnd->FadeOut();
-}
-
-void AuPlayer_t::WaitEnd() {
-    chSysLock();
-    chThdSuspendS(&ThdRef);
-    chSysUnlock();
-}
-
-void AuPlayer_t::ISwitchSnds() {
-    if(ICurSnd == &ISnd1) {
-        ICurSnd = &ISnd2;
-        INextSnd = &ISnd1;
-    }
-    else {
-        ICurSnd = &ISnd1;
-        INextSnd = &ISnd2;
-    }
-    INextSnd->Buf1.Sz = 0;
-    INextSnd->Buf2.Sz = 0;
-    INextSnd->Track.stop();
-}
-
-
-void FSound_t::FadeOut() {
-    Track.stop(AudioTrack::Fade::CosineOut, 540);
-}
-
-
-
-#if 1 // ========================== Callbacks ==================================
+#if 1 // =========================== Callbacks =================================
+// Callbacks. Returns true if OK
 size_t TellCallback(void *file_context) {
     FIL *pFile = (FIL*)file_context;
     return pFile->fptr;
@@ -196,15 +65,267 @@ bool SeekCallback(void *file_context, size_t offset) {
 }
 
 size_t ReadCallback(void *file_context, uint8_t *buffer, size_t length) {
+//    systime_t Start = chVTGetSystemTimeX();
     FIL *pFile = (FIL*)file_context;
     uint32_t ReadSz=0;
     FRESULT rslt = f_read(pFile, buffer, length, &ReadSz);
-    if(rslt == FR_OK) {
-        return ReadSz;
-    }
+//    Printf("   r %u\r", chVTTimeElapsedSinceX(Start));
+    if(rslt == FR_OK) return ReadSz;
     else {
 //        Printf("ReadErr %u\r", rslt);
         return 0;
     }
+}
+
+void TrackEndCallback(int SlotN);
+#endif
+
+#if 1 // ====================== SlotPlayer and Mixer ===========================
+static AudioMixer mixer {TellCallback, SeekCallback, ReadCallback, TrackEndCallback, 2};
+
+// ==== Buffers ====
+#define BUF_SZ_FRAME       1024UL
+struct SndBuf_t {
+    uint32_t Buf[BUF_SZ_FRAME], Sz;
+};
+static SndBuf_t Buf1, Buf2;
+static volatile SndBuf_t *PCurBuf = &Buf1;
+
+static void ReadToBuf(volatile SndBuf_t *PBuf) {
+    PBuf->Sz = mixer.play((int16_t*)PBuf->Buf, BUF_SZ_FRAME); // returns how many frames was read
+}
+
+void TransmitBuf(volatile SndBuf_t *PBuf) {
+    Sai.TransmitBuf(PBuf->Buf, PBuf->Sz*2);    // Sz16 == SzFrame*2
+}
+
+// DMA Tx Completed IRQ
+//void OnDmaSaiTxIrqI() {
+//    PCurBuf = (PCurBuf == &Buf1)? &Buf2 : &Buf1;
+//    TransmitBuf(PCurBuf);
+//    MsgQSnd.SendNowOrExitI(SndMsg_t(sndcmdPrepareNextBuf));
+//}
+#endif
+
+#if 1 // ============================ Slot =====================================
+class Slot_t {
+private:
+    const uint32_t Indx;
+    FIL IFile;
+    uint8_t EvtID = 0;
+    void SendEndEvtIfNeeded() {
+        if(EvtID != 0) EvtQMain.SendNowOrExit(EvtMsg_t(EvtID));
+    }
+public:
+    Slot_t(uint32_t AIndx) : Indx(AIndx), Busy(false), Volume(AudioMixer::UNIT_LEVEL) {}
+    bool Busy;
+    uint16_t Volume;
+
+    void Start(std::string* AFname, bool ARepeat, uint8_t AEvtID) {
+//        Printf("%S: %S %u %u\r", __FUNCTION__, AFname->c_str(), Volume, ARepeat);
+        EvtID = AEvtID;
+        if(TryOpenFileRead(AFname->c_str(), &IFile) == retvOk) {
+            uint32_t SamplingRate = mixer.samplingRate(); // Save current Fs
+            Busy = mixer.start(
+                    Indx, &IFile,
+                    (ARepeat? AudioMixer::Mode::Continuous : AudioMixer::Mode::Single),
+                    true, Volume,
+                    AudioTrack::Fade::LinearIn, START_STOP_FADE_DUR
+            );
+            // Check if Fs changed
+            if(mixer.samplingRate() != SamplingRate) {
+                Sai.SetupSampleRate(mixer.samplingRate());
+//                Printf("New Fs: %u\r", mixer.samplingRate());
+            }
+        }
+        else {
+            SendEndEvtIfNeeded(); // openfile failed
+        }
+    }
+    void SetVolume(uint16_t AVolume) {
+        mixer.fade(Indx, AVolume);
+        Volume = AVolume;
+    }
+    void SetVolume(uint16_t AVolume, uint16_t FadeDuration_ms) {
+        mixer.fade(Indx, AVolume,
+                (AVolume > Volume)? AudioTrack::Fade::LinearIn : AudioTrack::Fade::LinearOut,
+                        FadeDuration_ms);
+        Volume = AVolume;
+    }
+    void Stop() {
+        if(Busy) {
+            mixer.stop(Indx, AudioTrack::Fade::LinearOut, START_STOP_FADE_DUR);
+//            CloseFile(&IFile); XXX
+            Busy = false;
+            SendEndEvtIfNeeded();
+        }
+    }
+};
+
+static Slot_t Slot[AudioMixer::TRACKS] = {0, 1};
+#endif
+
+#if 1 // ============================== Thread =================================
+static THD_WORKING_AREA(waSndThread, 4096);
+__noreturn
+static void SoundThread(void *arg) {
+    chRegSetThreadName("Sound");
+    // Fill two buffers
+    ReadToBuf(&Buf1);
+    ReadToBuf(&Buf2);
+    PCurBuf = &Buf1;
+    // Start playing
+    TransmitBuf(&Buf1);
+
+    while(true) {
+        SndMsg_t Msg = MsgQSnd.Fetch(TIME_INFINITE);
+        switch(Msg.Cmd) {
+            case sndcmdStart:
+//                Printf("sndCmdStart %u %S\r", Msg.Slot, Msg.PFName->c_str());
+                Slot[Msg.Slot].Start(Msg.PFName, Msg.Repeat, Msg.EvtID);
+                break;
+
+            case sndCmdVolume:
+//                Log.Write("*setvol sl=%u v=%u\r", Msg.Slot, Msg.Volume);
+//                Printf("*setvol sl=%u v=%u\r", Msg.Slot, Msg.Volume);
+                if(Msg.Slot == ALL_SLOTS) mixer.scale(Msg.Volume);
+                else Slot[Msg.Slot].SetVolume(Msg.Volume, FADE_DURATION_ms);
+                break;
+
+            case sndcmdStop:
+//                Printf("sndCmdStop %u\r", Msg.Slot);
+                if(Msg.Slot == ALL_SLOTS) {
+                    for(uint32_t i=0; i<mixer.TRACKS; i++) Slot[i].Stop();
+                }
+                else Slot[Msg.Slot].Stop();
+                break;
+
+            case sndcmdPrepareNextBuf: {
+//                systime_t Start = chVTGetSystemTimeX();
+                ReadToBuf((PCurBuf == &Buf1)? &Buf2 : &Buf1);
+//                Printf(" T %u\r", chVTTimeElapsedSinceX(Start));
+            } break;
+
+            case sndcmdNone: break;
+        } // switch
+    } // while true
+}
+
+// Mixer calls this
+void TrackEndCallback(int SlotN) {
+    Slot[SlotN].Stop();
+    AuPlayer.OnTrackEnd(SlotN);
+//    Printf("TrackEnd: %u\r", SlotN);
+}
+#endif
+
+#if 1 // ============================== SoundDir ===============================
+uint8_t SndDir_t::Init() {
+    DIR *PDir = new DIR;
+    FILINFO *PInfo = new FILINFO;
+    FNames.clear();
+    PrevN = -1; // No prev file
+    FRESULT Rslt = f_opendir(PDir, FullFName.c_str());
+    if(Rslt == FR_OK) {
+        while(true) { // Iterate items in dir
+            *PInfo->fname = 0;
+            Rslt = f_readdir(PDir, PInfo);
+            if(Rslt != FR_OK) break;
+            if(PInfo->fname[0] == 0) break; // No files left
+            else { // Filename ok, check if not dir
+                if(!(PInfo->fattrib & AM_DIR)) { // Not dir
+                    // Check Ext
+                    char *FName = PInfo->fname;
+                    uint32_t Len = strlen(FName);
+                    if(Len > 4) {
+                        if(strncasecmp(&FName[Len-3], "wav", 3) == 0) {
+                            FNames.push_back(FName);
+//                            Printf("  %S %S\r", DirName, FName);
+                        }
+                    } // if Len>4
+                } // if not dir
+            } // Filename ok
+        } // while true
+    } // if f_opendir
+    delete PDir;
+    delete PInfo;
+    return (FNames.size() == 0)? retvEmpty : retvOk;
+}
+
+uint8_t SndDir_t::SelectRandomFilename() {
+    size_t Cnt = FNames.size();
+    if(Cnt > 0) {
+        // Generate number of file
+        int32_t N = 0;
+        if(Cnt > 1) { // Get random number if count > 1
+            do {
+                N = Random::Generate(0, Cnt-1); // [0; Cnt-1]
+            } while(N == PrevN);   // skip same as previous
+        }
+        PrevN = N;
+        FullFName  = DirName + '/' + FNames[N];
+        return retvOk;
+    }
+    else return retvEmpty; // No files
+}
+#endif
+
+#if 1 // ============================ Sound ====================================
+void AuPlayer_t::Init() {
+    MsgQSnd.Init();
+    chThdCreateStatic(waSndThread, sizeof(waSndThread), NORMALPRIO, SoundThread, NULL);
+}
+
+// Volume: [0; 100]
+void AuPlayer_t::SetupVolume(int32_t Volume) {
+    Printf("Volume: %d\r", Volume);
+    // Set software volume to maximum
+    MsgQSnd.SendNowOrExit(SndMsg_t(sndCmdVolume, ALL_SLOTS, 4096));
+    // Setup hardware volume to what needed XXX
+}
+
+void AuPlayer_t::SetSlotVolume(uint8_t ASlot, int32_t Volume) {
+    MsgQSnd.SendNowOrExit(SndMsg_t(sndCmdVolume, ASlot, Volume));
+}
+
+bool AuPlayer_t::IsIdle() {
+    for(uint32_t i=1; i<mixer.TRACKS; i++) {
+        if(Slot[i].Busy) return false;
+    }
+    return true;
+}
+
+void AuPlayer_t::StopAll() {
+    MsgQSnd.SendNowOrExit(SndMsg_t(sndcmdStop, ALL_SLOTS));
+}
+
+void AuPlayer_t::IPlayDir(SndDir_t &ADir, uint8_t ASlotN, bool Repeat, uint8_t EvtId) {
+    if(ADir.SelectRandomFilename() == retvOk) {
+        MsgQSnd.SendNowOrExit(SndMsg_t(sndcmdStart, ASlotN, &ADir.FullFName, Repeat, EvtId));
+    }
+    else { // No file, play ended not being started
+        if(EvtId != evtIdNone) EvtQMain.SendNowOrExit(EvtMsg_t(EvtId));
+    }
+}
+
+void AuPlayer_t::PlayAlive() {
+//    MsgQSnd.SendNowOrExit(SndMsg_t(sndcmdStart, 0, &FNameAlive, DO_NOT_REPEAT, evtIdNone));
+    MsgQSnd.SendNowOrExit(SndMsg_t(sndcmdStart, 0, &FNameAlive, REPEAT, evtIdNone));
+}
+
+void AuPlayer_t::OnTrackEnd(int SlotN) {
+//    Printf("%S %u\r", __FUNCTION__, SlotN);
+    // Play either next file or Hum
+//        Printf("Now1: %u; Next: %u\r", NowFName.length(), NextFName.length());
+//    if(NextFName.length() > 0) {
+//        NowFName = NextFName;
+//        NextFName.clear(); // Invalidate it to play hum after
+////            Printf("Now2: %u; Next: %u\r", NowFName.length(), NextFName.length());
+//        MsgQSnd.SendNowOrExit(SndMsg_t(sndcmdStart, SLOT_SETTINGS, &NowFName, DO_NOT_REPEAT));
+//    }
+//    else if(ThdRef != nullptr) chThdResume(&ThdRef, MSG_OK); // Wake waiting thread if any
+//    else { // play hum
+//        MsgQSnd.SendNowOrExit(SndMsg_t(sndcmdStart, SLOT_SETTINGS, &HumFName, REPEAT));
+//    }
 }
 #endif

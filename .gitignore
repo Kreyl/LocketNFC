@@ -5,3 +5,4 @@ LocketNfc_hw/LocketNfc-backups/
 LocketNfcAntPcb/LocketNfcAntPcb-backups/
 *.launch
 *.xml
+*.old

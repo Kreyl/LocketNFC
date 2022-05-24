@@ -9,11 +9,11 @@
 #include "shell.h"
 #include "kl_i2c.h"
 
-//static const stm32_dma_stream_t *PDmaTx;
-//static const stm32_dma_stream_t *PDmaRx;
+SAI_t Sai;
+void OnDmaSaiTxIrqI();
 
-//__attribute__((weak))
-//void AuOnNewSampleI(SampleStereo_t &Sample) { }
+static const stm32_dma_stream_t *PDmaTx;
+//static const stm32_dma_stream_t *PDmaRx;
 
 #if 1 // =========================== SAI defins ================================
 #define SAI_IRQ_NUMBER          74
@@ -84,31 +84,36 @@
 extern "C"
 void DmaSAITxIrq(void *p, uint32_t flags) {
     chSysLockFromISR();
-//    if(Codec.SaiDmaCallbackI) Codec.SaiDmaCallbackI();
+    // DO nothing if disabled
+    if(AU_SAI_A->CR1 & SAI_xCR1_SAIEN) OnDmaSaiTxIrqI();
     chSysUnlockFromISR();
 }
 
-#if 0 // ======= Setup SAI =======
+void SAI_t::Init() {
     // === Clock ===
-    Clk.EnableMCO(mcoHSE, mcoDiv1); // Master clock output
     AU_SAI_RccEn();
+    // PLLSAI2
+    Clk.EnablePllSai2POut();
+    RCC->CCIPR = (RCC->CCIPR & ~RCC_CCIPR_SAI1SEL) | (0b01UL << 22); // PLL2P is clock for SAI1
 
     // === GPIOs ===
     PinSetupAlterFunc(AU_LRCK); // Left/Right (Frame sync) clock output
     PinSetupAlterFunc(AU_SCLK); // Bit clock output
-    PinSetupAlterFunc(AU_SDIN); // SAI_A is Slave Transmitter
+    PinSetupAlterFunc(AU_SDIN); // SAI_A is Transmitter
 
-    DisableSAI();   // All settings must be changed when both blocks are disabled
+    Disable();   // All settings must be changed when both blocks are disabled
     // Sync setup: SaiA async, SaiB sync
     AU_SAI->GCR = 0;    // No external sync input/output
 
-    // === Setup SAI_A as async Slave Transmitter ===
+    // === Setup SAI_A as async Master Transmitter ===
     // Stereo mode, Async, MSB first, Rising edge, Data Sz = 16bit, Free protocol, Slave Tx
-    AU_SAI_A->CR1 = SAI_SYNC_ASYNC | SAI_RISING_EDGE | SAI_CR1_DATASZ_16BIT | SAI_SLAVE_TX;
-    // No offset, FS Active Low, FS Active Lvl Len = 1, Frame Len = 32
-    AU_SAI_A->FRCR = ((1 - 1) << 8) | (62 - 1);
-    // 0 & 1 slots en, N slots = 2, slot size = 16bit, no offset
-    AU_SAI_A->SLOTR = SAI_SlotActive_0 | SAI_SlotActive_1 | ((SAI_SLOT_CNT - 1) << 8) | SAI_SLOTSZ_16bit;
+//    AU_SAI_A->CR1 = SAI_SYNC_ASYNC | SAI_RISING_EDGE | SAI_CR1_DATASZ_16BIT | SAI_SLAVE_TX;
+    // Stereo mode, Async, MSB first, Rising edge, Data Sz = 16bit, Free protocol, Master Tx
+    AU_SAI_A->CR1 = SAI_SYNC_ASYNC | SAI_RISING_EDGE | SAI_CR1_DATASZ_16BIT | SAI_MASTER_TX;
+    // No offset, FS Active Low, FS is start + ch side (I2S), FS Active Lvl Len = 16, Frame Len = 32
+    AU_SAI_A->FRCR = SAI_xFRCR_FSDEF | ((16 - 1) << 8) | (32 - 1);
+    // 0 & 1 slots en, N slots = 2, slot size = DataSz in CR1, no offset
+    AU_SAI_A->SLOTR = SAI_SlotActive_0 | SAI_SlotActive_1 | ((SAI_SLOT_CNT - 1) << 8) | SAI_SLOTSZ_EQ_DATASZ;
     AU_SAI_A->IMR = 0;  // No irq on TX
 
 #if MIC_EN    // === Setup SAI_B as Slave Receiver ===
@@ -119,41 +124,35 @@ void DmaSAITxIrq(void *p, uint32_t flags) {
     AU_SAI_B->SLOTR = AU_SAI_A->SLOTR;
     AU_SAI_B->IMR = 0;  // No irq on RX
 #endif
-#endif
 
-#if 0 // ==== DMA ====
+#if 1 // ==== DMA ====
     AU_SAI_A->CR1 |= SAI_xCR1_DMAEN;
     PDmaTx = dmaStreamAlloc(SAI_DMA_A, IRQ_PRIO_MEDIUM, DmaSAITxIrq, nullptr);
     dmaStreamSetPeripheral(PDmaTx, &AU_SAI_A->DR);
 #endif
+}
 
-    /*
-void CS42L52_t::Deinit() {
+void SAI_t::Enable() {
+    AU_SAI_A->CR1 |= SAI_xCR1_SAIEN;
+}
+void SAI_t::Disable() {
+    AU_SAI_A->CR1 &= ~SAI_xCR1_SAIEN;
+    while(AU_SAI_A->CR1 & SAI_xCR1_SAIEN); // Poll until disabled.Will be disabled after current frame transmission is ended.
+}
+
+void SAI_t::Deinit() {
     if(PDmaTx) {
         dmaStreamDisable(PDmaTx);
         dmaStreamFree(PDmaTx);
         PDmaTx = nullptr;
     }
     AU_SAI_A->CR2 = SAI_xCR2_FFLUSH;
-    Clk.DisableMCO();
-    PinRst.SetLo();
+//    Clk.DisableMCO();
     AU_SAI_RccDis();
-    IsOn = false;
 }
 
-void CS42L52_t::Standby() {
-    WriteReg(CS_R_PWR_CTRL1, 0xFF);
-    IsOn = false;
-}
 
-void CS42L52_t::Resume() {
-    // PwrCtrl 1: Power on codec only
-    WriteReg(CS_R_PWR_CTRL1, 0b11111110);
-    IsOn = true;
-}
-*/
-
-#if 0 // ============================= Tx/Rx ===================================
+/*
 void CS42L52_t::SetupMonoStereo(MonoStereo_t MonoStereo) {
     dmaStreamDisable(PDmaTx);
     DisableSAI();   // All settings must be changed when both blocks are disabled
@@ -164,38 +163,70 @@ void CS42L52_t::SetupMonoStereo(MonoStereo_t MonoStereo) {
     else AU_SAI_A->CR1 |= SAI_xCR1_MONO;
     AU_SAI_A->CR2 = SAI_xCR2_FFLUSH | SAI_FIFO_THR; // Flush FIFO
 }
+*/
 
-void CS42L52_t::SetupSampleRate(uint32_t SampleRate) {  // Setup sample rate. No Auto, 32kHz, not27MHz
-//    Printf("CS fs: %u\r", SampleRate);
-    uint8_t                      v = (0b10 << 5) | (1 << 4) | (0 << 3) | (0b01 << 1);    // 16 kHz
-    if     (SampleRate == 22050) v = (0b10 << 5) | (0 << 4) | (0 << 3) | (0b11 << 1);
-    else if(SampleRate == 44100) v = (0b01 << 5) | (0 << 4) | (0 << 3) | (0b11 << 1);
-    else if(SampleRate == 48000) v = (0b01 << 5) | (0 << 4) | (0 << 3) | (0b01 << 1);
-    else if(SampleRate == 96000) v = (0b00 << 5) | (0 << 4) | (0 << 3) | (0b01 << 1);
-    WriteReg(0x05, v);
-//    Printf("v: %X\r", v);
+// Samplerate: 16000, 22050, 32000, 44100, 48000
+uint8_t SAI_t::SetupSampleRate(uint32_t SampleRate) {
+    Stop();
+    // PLL must be disabled to change its setup
+    Clk.DisablePllSai2();
+    AU_SAI_A->CR1 &= ~SAI_xCR1_MCKDIV;
+    switch(SampleRate) {
+        case 16000:
+            Clk.SetupPllSai2(43, 2, 7); // (4MHz * 43 / 7) / 256const / 6mclk = 15997
+            AU_SAI_A->CR1 |= (3UL << 20); // MCLKDIV=3 => div by 6
+            break;
+        case 22050:
+            Clk.SetupPllSai2(48, 2, 17);
+            AU_SAI_A->CR1 |= (1UL << 20); // MCLKDIV=1 => div by 2
+            break;
+        case 32000:
+            Clk.SetupPllSai2(86, 2, 7);
+            AU_SAI_A->CR1 |= (3UL << 20); // MCLKDIV=3 => div by 6
+            break;
+        case 44100:
+            Clk.SetupPllSai2(48, 2, 17); // (4MHz * 48 / 17) / 256const / 1mclk = 44117
+            AU_SAI_A->CR1 |= (0UL << 20); // MCLKDIV=0 => div by 1
+            break;
+        case 48000:
+            Clk.SetupPllSai2(43, 2, 7); // (4MHz * 43 / 7) / 256const / 2mclk = 47991
+            AU_SAI_A->CR1 |= (1UL << 20); // MCLKDIV=1 => div by 2
+            break;
+        default:
+            Printf("Sai: bad sample rate\r\n");
+            return retvBadValue;
+            break;
+    }
+    // Start PLL
+    if(Clk.EnablePllSai2() == retvOk) return retvOk;
+    else {
+        Printf("SAI1 fail\r");
+        return retvFail;
+    }
 }
 
-void CS42L52_t::TransmitBuf(volatile void *Buf, uint32_t Sz16) {
+
+void SAI_t::TransmitBuf(volatile void *Buf, uint32_t Sz16) {
     dmaStreamDisable(PDmaTx);
     dmaStreamSetMemory0(PDmaTx, Buf);
     dmaStreamSetMode(PDmaTx, SAI_DMATX_MONO_MODE);
     dmaStreamSetTransactionSize(PDmaTx, Sz16);
     dmaStreamEnable(PDmaTx);
-    EnableSAI(); // Start tx
+    Enable(); // Start tx
 }
 
-bool CS42L52_t::IsTransmitting() {
+bool SAI_t::IsTransmitting() {
     return (dmaStreamGetTransactionSize(PDmaTx) != 0);
 }
 
-void CS42L52_t::Stop() {
+void SAI_t::Stop() {
     dmaStreamDisable(PDmaTx);
+    Disable();
     AU_SAI_A->CR2 = SAI_xCR2_FFLUSH;
 }
 
-void CS42L52_t::StartStream() {
-    DisableSAI();   // All settings must be changed when both blocks are disabled
+void SAI_t::StartStream() {
+    Disable();   // All settings must be changed when both blocks are disabled
     dmaStreamDisable(PDmaTx);
 #if MIC_EN
     dmaStreamDisable(SAI_DMA_B);
@@ -206,14 +237,13 @@ void CS42L52_t::StartStream() {
     // Setup IRQ
     AU_SAI_B->IMR = SAI_xIMR_FREQIE;
     nvicEnableVector(SAI_IRQ_NUMBER, IRQ_PRIO_MEDIUM);
-    EnableSAI();
+    Enable();
 }
 
-void CS42L52_t::PutSampleI(SampleStereo_t &Sample) {
+void SAI_t::PutSampleI(SampleStereo_t &Sample) {
     AU_SAI_A->DR = Sample.Right;    // }
     AU_SAI_A->DR = Sample.Left;     // } Somehow Left will be sent first if put last
 }
-#endif
 
 
 #if 0 // ============================== IRQ ====================================

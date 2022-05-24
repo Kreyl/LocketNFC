@@ -31,4 +31,5 @@ enum EvtMsgId_t {
 
     // BT
     evtIdBtDevFound,
+    evtIdBtDevConnected,
 };

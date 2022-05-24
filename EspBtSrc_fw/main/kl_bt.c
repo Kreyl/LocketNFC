@@ -290,6 +290,7 @@ static void bt_app_av_state_connecting(uint16_t event, void *param) {
                 Printf("Connected\r\n");
             }
             else if(a2d->conn_stat.state == ESP_A2D_CONNECTION_STATE_DISCONNECTED) {
+                ESP_LOGI(BT_AV_TAG, "a2dp disconnected");
                 A2D_State =  APP_AV_STATE_UNCONNECTED;
                 Printf("Unconnected\r\n");
             }
@@ -300,7 +301,11 @@ static void bt_app_av_state_connecting(uint16_t event, void *param) {
         case ESP_A2D_MEDIA_CTRL_ACK_EVT: break;
 
         case BT_APP_HEART_BEAT_EVT:
-            if(++ConnectRetryCnt >= 2) A2D_State = APP_AV_STATE_UNCONNECTED;
+            if(++ConnectRetryCnt >= 2) {
+                A2D_State = APP_AV_STATE_UNCONNECTED;
+                ESP_LOGI(BT_AV_TAG, "Conn failed");
+                Printf("ConnFailed\r\n");
+            }
             break;
 
         default: ESP_LOGE(BT_AV_TAG, "%s unhandled evt %d", __func__, event); break;
@@ -551,7 +556,13 @@ void BTStopDiscovery() {
 
 void BTConnect(uint8_t *pAddr) {
     BTDisconnect();
-    memcpy(BtDevAddr, pAddr, ESP_BD_ADDR_LEN);
+    BtDevAddr[0] = pAddr[0];
+    BtDevAddr[1] = pAddr[1];
+    BtDevAddr[2] = pAddr[2];
+    BtDevAddr[3] = pAddr[3];
+    BtDevAddr[4] = pAddr[4];
+    BtDevAddr[5] = pAddr[5];
+    ESP_LOGI(BT_RC_CT_TAG, "Addr %02x:%02x:%02x:%02x:%02x:%02x", BtDevAddr[0], BtDevAddr[1], BtDevAddr[2], BtDevAddr[3], BtDevAddr[4], BtDevAddr[5]);
     A2D_State = APP_AV_STATE_CONNECTING;
     esp_a2d_source_connect(BtDevAddr);
 }
@@ -559,6 +570,6 @@ void BTConnect(uint8_t *pAddr) {
 void BTDisconnect() {
     AutoConnectEn = false;
     BTStopDiscovery();
-    if(A2D_State != APP_AV_STATE_UNCONNECTED) esp_a2d_source_disconnect(BtDevAddr);
+    if(A2D_State == APP_AV_STATE_CONNECTED || A2D_State == APP_AV_STATE_CONNECTING) esp_a2d_source_disconnect(BtDevAddr);
 }
 #endif

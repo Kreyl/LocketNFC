@@ -44,6 +44,7 @@
 namespace Esp {
 
 extern char BtAddr[BT_ADDR_STRLEN];
+extern bool BtConnected;
 
 void Init();
 uint8_t Start();
@@ -58,4 +59,6 @@ void SetGpio0Lo();
 void Discover();
 void StopDiscover();
 
+void Connect(char* S);
+void Disconnect();
 }

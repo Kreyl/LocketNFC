@@ -9,7 +9,6 @@
 
 #include "kl_lib.h"
 
-/*
 union SampleStereo_t {
     uint32_t DWord32;
     struct {
@@ -21,26 +20,25 @@ typedef int16_t SampleMono_t;
 
 enum MonoStereo_t { Stereo, Mono };
 
-    void EnableSAI() {
-        AU_SAI_A->CR1 |= SAI_xCR1_SAIEN;
-#if MIC_EN
-        AU_SAI_B->CR1 |= SAI_xCR1_SAIEN;
-#endif
-    }
-    void DisableSAI() {
-        AU_SAI_A->CR1 &= ~SAI_xCR1_SAIEN;
-#if MIC_EN
-        AU_SAI_B->CR1 &= ~SAI_xCR1_SAIEN;
-#endif
-    }
-    ftVoidVoid SaiDmaCallbackI = nullptr;
-
+class SAI_t {
+public:
     void Init();
     void Deinit();
-    void Standby();
-    void Resume();
+    uint8_t SetupSampleRate(uint32_t SampleRate);
+    void TransmitBuf(volatile void *Buf, uint32_t Sz16);
+    bool IsTransmitting();
+    void Stop();
+    void StartStream();
+    void PutSampleI(SampleStereo_t &Sample);
+    void Enable();
+    void Disable();
+};
 
+extern SAI_t Sai;
 
+void OnDmaSaiTxIrqI();
+
+/*
     // Hi-level
     uint8_t SetMasterVolume(int8_t Volume_dB);
     uint8_t SetHeadphoneVolume(int8_t Volume_dB);

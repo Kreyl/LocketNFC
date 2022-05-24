@@ -109,6 +109,12 @@ static void EspThread(void *arg) {
             }
         }
 
+        else if(Reply.NameIs("MediaOk")) {
+            Esp::BtConnected = true;
+            EvtQMain.SendNowOrExit(EvtMsg_t(evtIdBtDevConnected));
+        }
+
+
         /*
         EspMsg_t Msg = EvtQEsp.Fetch(TIME_INFINITE);
         switch(Msg.ID) {
@@ -134,6 +140,7 @@ static void EspThread(void *arg) {
 namespace Esp { // ==== Functions ====
 
 char BtAddr[BT_ADDR_STRLEN] = {0};
+bool BtConnected = false;
 
 void Init() {
     EspEn.Init();
@@ -170,6 +177,8 @@ void SetGpio0Lo() { EspGpio0.SetLo(); }
 void Discover()     { EspUart.Print("Discover\n"); }
 void StopDiscover() { EspUart.Print("StopDiscover\n"); }
 
+void Connect(char* S) { EspUart.Print("Connect %S\n", S); }
+void Disconnect()     { EspUart.Print("Disconnect\n"); }
 
 } // namespace
 

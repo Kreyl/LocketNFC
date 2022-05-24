@@ -45,6 +45,9 @@ static TmrKL_t TmrOneSecond {TIME_MS2I(999), evtIdEverySecond, tktPeriodic}; // 
 LedRGB_t Led { LED_R_PIN, LED_G_PIN, LED_B_PIN };
 #endif
 
+#define BUF_SZ_FRAME       1024UL
+static uint32_t Buf[BUF_SZ_FRAME];
+
 int main(void) {
 #if 0 // ==== Get source of wakeup ====
     rccEnablePWRInterface(FALSE);
@@ -88,21 +91,29 @@ int main(void) {
     if(Clk.EnablePLL() == retvOk) {
         Clk.EnablePllROut();
         Clk.SwitchToPLL();
-    }
-    // 48MHz clock for USB & 24MHz clock for ADC
-    Clk.SetupPllSai1(24, 4, 2, 7); // 4MHz * 24 = 96; R = 96 / 4 = 24, Q = 96 / 2 = 48
-    if(Clk.EnablePllSai1() == retvOk) {
-        // Setup Sai1R as ADC source
-        Clk.EnableSai1ROut();
+        // Setup Sai1Q as 48MHz clock for USB and SDIO
+        Clk.EnablePllQOut();
         uint32_t tmp = RCC->CCIPR;
-        tmp &= ~RCC_CCIPR_ADCSEL;
-        tmp |= 0b01UL << 28; // SAI1R is ADC clock
-        // Setup Sai1Q as 48MHz source
-        Clk.EnableSai1QOut();
         tmp &= ~RCC_CCIPR_CLK48SEL;
-        tmp |= 0b01UL << 26;
+        tmp |= 0b10UL << 26; // PLLQ is source
+        // ADC clock = SYSCLK
+        tmp &= ~RCC_CCIPR_ADCSEL;
+        tmp |= 0b11UL << 28; // SYSCLK is ADC clock
         RCC->CCIPR = tmp;
     }
+//    Clk.SetupPllSai1(24, 4, 2, 7); // 4MHz * 24 = 96; R = 96 / 4 = 24, Q = 96 / 2 = 48
+//    if(Clk.EnablePllSai1() == retvOk) {
+//        // Setup Sai1R as ADC source
+//        Clk.EnableSai1ROut();
+//        uint32_t tmp = RCC->CCIPR;
+//        tmp &= ~RCC_CCIPR_ADCSEL;
+//        tmp |= 0b01UL << 28; // SAI1R is ADC clock
+//        // Setup Sai1Q as 48MHz source
+//        Clk.EnableSai1QOut();
+//        tmp &= ~RCC_CCIPR_CLK48SEL;
+//        tmp |= 0b01UL << 26;
+//        RCC->CCIPR = tmp;
+//    }
     Clk.UpdateFreqValues();
 
     // Init OS
@@ -129,14 +140,23 @@ int main(void) {
 //    Buttons::Init();
 //    Charger.Init();
 //    AuPlayer.Init();
-    Esp::Init();
-    Esp::Start();
-    EspUart.Init();
+
+
+//    Esp::Init();
+//    Esp::Start();
+//    EspUart.Init();
 
     TmrOneSecond.StartOrRestart();
 
     SD.Init();
-//    Resume();
+    Sai.Init();
+    Sai.SetupSampleRate(16000);
+//    Sai.EnableSAI();
+
+    for(uint32_t i=0; i<BUF_SZ_FRAME; i++) {
+        Buf[i] = 0x55550000;
+    }
+    Sai.TransmitBuf(Buf, BUF_SZ_FRAME);
 
     // Init if SD ok
     if(SD.IsReady) {
@@ -154,6 +174,11 @@ int main(void) {
 
     // Main cycle
     ITask();
+}
+
+
+void OnDmaSaiTxIrqI() {
+    Sai.TransmitBuf(Buf, BUF_SZ_FRAME);
 }
 
 __noreturn
@@ -205,6 +230,10 @@ void ITask() {
             case evtIdBtDevFound:
                 Printf("BT dev found: %S\r", Esp::BtAddr);
                 break;
+            case evtIdBtDevConnected:
+                Printf("BT dev connected\r");
+                break;
+
 
             case evtIdEverySecond:
 //                Printf("Second\r");
@@ -368,16 +397,34 @@ void OnCmd(Shell_t *PShell) {
         Esp::StopDiscover();
         PShell->Ok();
     }
+    else if(PCmd->NameIs("espConnect")) {
+        char *S;
+        if((S = PCmd->GetNextString()) == nullptr) S = Esp::BtAddr;
+        Esp::Connect(S);
+        PShell->Ok();
+    }
+    else if(PCmd->NameIs("espDisconnect")) {
+        Esp::Disconnect();
+        PShell->Ok();
+    }
 
-
-//    else if(PCmd->NameIs("play")) {
+    else if(PCmd->NameIs("play")) {
 //        int32_t v1, v2;
 //        if(PCmd->GetNext<int32_t>(&v1) != retvOk) return;
 //        if(PCmd->GetNext<int32_t>(&v2) != retvOk) return;
-//        Codec.SetSpeakerVolume(v1); // -96...0
-//        Codec.SetMasterVolume(v2); // -102...12
-//        AuPlayer.Play("1.wav", spmSingle);
-//    }
+        AuPlayer.PlayAlive();
+    }
+
+    else if(PCmd->NameIs("Sampr")) {
+        uint32_t sr;
+        if(PCmd->GetNext<uint32_t>(&sr) == retvOk) {
+            Sai.SetupSampleRate(sr);
+//            Sai.EnableSAI();
+            Sai.TransmitBuf(Buf, BUF_SZ_FRAME);
+            PShell->Ok();
+        }
+        else PShell->BadParam();
+    }
 
     else PShell->CmdUnknown();
 }

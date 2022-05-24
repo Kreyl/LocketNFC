@@ -130,9 +130,9 @@ private:
     size_t frame_size_;
     size_t channel_size_;
 
-    size_t initial_data_chunk_offset_;
+    size_t initial_data_chunk_offset_ = 0;
     size_t final_data_chunk_offset_;
-    size_t next_data_chunk_offset_;
+    size_t next_data_chunk_offset_ = 0;
     size_t current_data_chunk_frames_;
 
     alignas(4) uint8_t frame_buffer_[WAVREADER_BUFFER_SIZE];
