@@ -109,7 +109,9 @@ void SAI_t::Init() {
     // Stereo mode, Async, MSB first, Rising edge, Data Sz = 16bit, Free protocol, Slave Tx
 //    AU_SAI_A->CR1 = SAI_SYNC_ASYNC | SAI_RISING_EDGE | SAI_CR1_DATASZ_16BIT | SAI_SLAVE_TX;
     // Stereo mode, Async, MSB first, Rising edge, Data Sz = 16bit, Free protocol, Master Tx
-    AU_SAI_A->CR1 = SAI_SYNC_ASYNC | SAI_RISING_EDGE | SAI_CR1_DATASZ_16BIT | SAI_MASTER_TX;
+    AU_SAI_A->CR1 = SAI_SYNC_ASYNC | SAI_FALLING_EDGE | SAI_CR1_DATASZ_16BIT | SAI_MASTER_TX;
+    // FIFO Threshold = 1/2
+    AU_SAI_A->CR2 = SAI_FIFO_THR;
     // No offset, FS Active Low, FS is start + ch side (I2S), FS Active Lvl Len = 16, Frame Len = 32
     AU_SAI_A->FRCR = SAI_xFRCR_FSDEF | ((16 - 1) << 8) | (32 - 1);
     // 0 & 1 slots en, N slots = 2, slot size = DataSz in CR1, no offset
@@ -146,7 +148,7 @@ void SAI_t::Deinit() {
         dmaStreamFree(PDmaTx);
         PDmaTx = nullptr;
     }
-    AU_SAI_A->CR2 = SAI_xCR2_FFLUSH;
+    AU_SAI_A->CR2 = SAI_xCR2_FFLUSH | SAI_FIFO_THR;
 //    Clk.DisableMCO();
     AU_SAI_RccDis();
 }
@@ -209,7 +211,7 @@ uint8_t SAI_t::SetupSampleRate(uint32_t SampleRate) {
 void SAI_t::TransmitBuf(volatile void *Buf, uint32_t Sz16) {
     dmaStreamDisable(PDmaTx);
     dmaStreamSetMemory0(PDmaTx, Buf);
-    dmaStreamSetMode(PDmaTx, SAI_DMATX_MONO_MODE);
+    dmaStreamSetMode(PDmaTx, SAI_DMATX_MONO_MODE); // 1 channel at a time
     dmaStreamSetTransactionSize(PDmaTx, Sz16);
     dmaStreamEnable(PDmaTx);
     Enable(); // Start tx
@@ -222,7 +224,7 @@ bool SAI_t::IsTransmitting() {
 void SAI_t::Stop() {
     dmaStreamDisable(PDmaTx);
     Disable();
-    AU_SAI_A->CR2 = SAI_xCR2_FFLUSH;
+    AU_SAI_A->CR2 = SAI_xCR2_FFLUSH | SAI_FIFO_THR;
 }
 
 void SAI_t::StartStream() {

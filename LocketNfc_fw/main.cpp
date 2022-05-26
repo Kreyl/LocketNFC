@@ -91,8 +91,9 @@ int main(void) {
     if(Clk.EnablePLL() == retvOk) {
         Clk.EnablePllROut();
         Clk.SwitchToPLL();
-        // Setup Sai1Q as 48MHz clock for USB and SDIO
+        // Setup PLLQ as 48MHz clock for USB and SDIO
         Clk.EnablePllQOut();
+//        Clk.SetupSai1Qas48MhzSrc();
         uint32_t tmp = RCC->CCIPR;
         tmp &= ~RCC_CCIPR_CLK48SEL;
         tmp |= 0b10UL << 26; // PLLQ is source
@@ -154,7 +155,7 @@ int main(void) {
 //    Sai.EnableSAI();
 
     for(uint32_t i=0; i<BUF_SZ_FRAME; i++) {
-        Buf[i] = 0x55550000;
+        Buf[i] = 0x8000c000;
     }
     Sai.TransmitBuf(Buf, BUF_SZ_FRAME);
 
