@@ -62,7 +62,7 @@ static void bt_av_hdl_stack_evt(uint16_t event, void *p_param);
 static void bt_app_a2d_cb(esp_a2d_cb_event_t event, esp_a2d_cb_param_t *param);
 
 /// callback function for A2DP source audio data stream
-static int32_t bt_app_a2d_data_cb(uint8_t *data, int32_t len);
+//static int32_t bt_app_a2d_data_cb(uint8_t *data, int32_t len);
 
 /// callback function for AVRCP controller
 static void bt_app_rc_ct_cb(esp_avrc_ct_cb_event_t event, esp_avrc_ct_cb_param_t *param);
@@ -222,7 +222,7 @@ static void bt_av_hdl_stack_evt(uint16_t event, void *p_param) {
 
         // initialize A2DP source
         esp_a2d_register_callback(&bt_app_a2d_cb);
-        esp_a2d_source_register_data_callback(bt_app_a2d_data_cb);
+        esp_a2d_source_register_data_callback(BTOnDataRequest);
         esp_a2d_source_init();
 
         // set discoverable and connectable mode
@@ -497,7 +497,7 @@ static void bt_av_hdl_avrc_ct_evt(uint16_t event, void *p_param) {
     }
 }
 
-
+/*
 static int32_t bt_app_a2d_data_cb(uint8_t *data, int32_t len) {
     if (len < 0 || data == NULL) return 0;
 
@@ -510,7 +510,7 @@ static int32_t bt_app_a2d_data_cb(uint8_t *data, int32_t len) {
 
     return len;
 }
-//
+*/
 
 #if 1 // ================= High level =================
 void BTInit() {
@@ -521,14 +521,14 @@ void BTInit() {
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
     $EC(esp_bt_controller_init(&bt_cfg));
     $EC(esp_bt_controller_enable(ESP_BT_MODE_CLASSIC_BT));
-    esp_bt_sleep_disable();
+    esp_bt_sleep_disable(); // XXX
     // bluedroid
     $EC(esp_bluedroid_init());
     $EC(esp_bluedroid_enable());
     // create application task
     bt_app_task_start_up();
     // Bluetooth device name, connection mode and profile set up
-    bt_app_work_dispatch(bt_av_hdl_stack_evt, BT_APP_EVT_STACK_UP, NULL, 0, NULL);
+    bt_app_work_dispatch(bt_av_hdl_stack_evt, BT_APP_EVT_STACK_UP, NULL, 0, NULL); // XXX
 #if (CONFIG_BT_SSP_ENABLED == true)
     /* Set default parameters for Secure Simple Pairing */
     esp_bt_sp_param_t param_type = ESP_BT_SP_IOCAP_MODE;

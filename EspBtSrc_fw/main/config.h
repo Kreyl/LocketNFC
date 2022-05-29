@@ -14,3 +14,8 @@
 #define UART_TXBUF_SZ   512
 #define UART_PERIPH     UART_NUM_1
 #define UART_Q_SZ       18
+
+// ==== I2S ====
+#define I2S_BCK_PIN     (GPIO_NUM_26)
+#define I2S_WS_PIN      (GPIO_NUM_25)
+#define I2S_DATAIN_PIN  (GPIO_NUM_27)

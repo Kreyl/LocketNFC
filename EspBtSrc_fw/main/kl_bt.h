@@ -16,3 +16,5 @@ void BTStopDiscovery();
 
 void BTConnect(uint8_t *pAddr);
 void BTDisconnect();
+
+int32_t BTOnDataRequest(uint8_t *PData, int32_t ALen);

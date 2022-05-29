@@ -20,11 +20,25 @@ typedef int16_t SampleMono_t;
 
 enum MonoStereo_t { Stereo, Mono };
 
+enum SaiMode_t : uint32_t {
+    saiModeMasterTransmitter = 0b00UL,
+    saiModeMasterReceiver    = 0b01UL,
+    saiModeSlaveTransmitter  = 0b10UL,
+    saiModeSlaveReceiver     = 0b11UL,
+};
+
+enum SaiClkEdge_t : uint32_t {
+    saiEdgeRising  = (0UL << 9),
+    saiEdgeFalling = (1UL << 9),
+};
+
 class SAI_t {
 public:
-    void Init();
+//    ftVoidVoid TxDmaCallbackI = nullptr;
+    void Init(SaiMode_t AMode, SaiClkEdge_t AEdge);
     void Deinit();
     uint8_t SetupSampleRate(uint32_t SampleRate);
+    void SetupMonoStereo(MonoStereo_t MonoStereo);
     void TransmitBuf(volatile void *Buf, uint32_t Sz16);
     bool IsTransmitting();
     void Stop();

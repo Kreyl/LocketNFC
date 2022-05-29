@@ -10,6 +10,7 @@
 #include "kl_i2c.h"
 
 SAI_t Sai;
+
 void OnDmaSaiTxIrqI();
 
 static const stm32_dma_stream_t *PDmaTx;
@@ -36,9 +37,6 @@ static const stm32_dma_stream_t *PDmaTx;
 #define SAI_SYNC_ASYNC          ((uint32_t)(0b00 << 10))
 #define SAI_SYNC_INTERNAL       ((uint32_t)(0b01 << 10))
 
-#define SAI_RISING_EDGE         ((uint32_t)(0 << 9))
-#define SAI_FALLING_EDGE        ((uint32_t)(1 << 9))
-
 // Slots related
 #define SAI_SLOT_CNT            2
 #define SAI_SlotActive_0        (1 << 16)
@@ -46,11 +44,6 @@ static const stm32_dma_stream_t *PDmaTx;
 #define SAI_SLOTSZ_EQ_DATASZ    (0b00 << 6)
 #define SAI_SLOTSZ_16bit        (0b01 << 6)
 #define SAI_SLOTSZ_32bit        (0b10 << 6)
-
-#define SAI_MASTER_TX           ((uint32_t)0x00000000)
-#define SAI_MASTER_RX           (SAI_xCR1_MODE_0)
-#define SAI_SLAVE_TX            (SAI_xCR1_MODE_1)
-#define SAI_SLAVE_RX            (SAI_xCR1_MODE_1 | SAI_xCR1_MODE_0)
 
 #define SAI_DMATX_MONO_MODE  \
                         STM32_DMA_CR_CHSEL(SAI_DMA_CHNL) |   \
@@ -84,12 +77,13 @@ static const stm32_dma_stream_t *PDmaTx;
 extern "C"
 void DmaSAITxIrq(void *p, uint32_t flags) {
     chSysLockFromISR();
-    // DO nothing if disabled
+//    PrintfI("i\r");
+    // Do nothing if disabled
     if(AU_SAI_A->CR1 & SAI_xCR1_SAIEN) OnDmaSaiTxIrqI();
     chSysUnlockFromISR();
 }
 
-void SAI_t::Init() {
+void SAI_t::Init(SaiMode_t AMode, SaiClkEdge_t AEdge) {
     // === Clock ===
     AU_SAI_RccEn();
     // PLLSAI2
@@ -104,12 +98,9 @@ void SAI_t::Init() {
     Disable();   // All settings must be changed when both blocks are disabled
     // Sync setup: SaiA async, SaiB sync
     AU_SAI->GCR = 0;    // No external sync input/output
-
-    // === Setup SAI_A as async Master Transmitter ===
-    // Stereo mode, Async, MSB first, Rising edge, Data Sz = 16bit, Free protocol, Slave Tx
-//    AU_SAI_A->CR1 = SAI_SYNC_ASYNC | SAI_RISING_EDGE | SAI_CR1_DATASZ_16BIT | SAI_SLAVE_TX;
-    // Stereo mode, Async, MSB first, Rising edge, Data Sz = 16bit, Free protocol, Master Tx
-    AU_SAI_A->CR1 = SAI_SYNC_ASYNC | SAI_FALLING_EDGE | SAI_CR1_DATASZ_16BIT | SAI_MASTER_TX;
+    // === Setup SAI_A ===
+    // Stereo mode, Async, MSB first, DataSz=16bit, Free protocol
+    AU_SAI_A->CR1 = SAI_SYNC_ASYNC | (uint32_t)AEdge | SAI_CR1_DATASZ_16BIT | (uint32_t)AMode;
     // FIFO Threshold = 1/2
     AU_SAI_A->CR2 = SAI_FIFO_THR;
     // No offset, FS Active Low, FS is start + ch side (I2S), FS Active Lvl Len = 16, Frame Len = 32
@@ -153,19 +144,12 @@ void SAI_t::Deinit() {
     AU_SAI_RccDis();
 }
 
-
-/*
-void CS42L52_t::SetupMonoStereo(MonoStereo_t MonoStereo) {
-    dmaStreamDisable(PDmaTx);
-    DisableSAI();   // All settings must be changed when both blocks are disabled
-    // Wait until really disabled
-    while(AU_SAI_A->CR1 & SAI_xCR1_SAIEN);
-    // Setup mono/stereo
+void SAI_t::SetupMonoStereo(MonoStereo_t MonoStereo) {
+    Stop();
     if(MonoStereo == Stereo) AU_SAI_A->CR1 &= ~SAI_xCR1_MONO;
     else AU_SAI_A->CR1 |= SAI_xCR1_MONO;
-    AU_SAI_A->CR2 = SAI_xCR2_FFLUSH | SAI_FIFO_THR; // Flush FIFO
 }
-*/
+
 
 // Samplerate: 16000, 22050, 32000, 44100, 48000
 uint8_t SAI_t::SetupSampleRate(uint32_t SampleRate) {
@@ -209,6 +193,7 @@ uint8_t SAI_t::SetupSampleRate(uint32_t SampleRate) {
 
 
 void SAI_t::TransmitBuf(volatile void *Buf, uint32_t Sz16) {
+//    PrintfI("b %u\r", Sz16);
     dmaStreamDisable(PDmaTx);
     dmaStreamSetMemory0(PDmaTx, Buf);
     dmaStreamSetMode(PDmaTx, SAI_DMATX_MONO_MODE); // 1 channel at a time

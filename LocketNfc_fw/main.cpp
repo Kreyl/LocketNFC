@@ -93,28 +93,10 @@ int main(void) {
         Clk.SwitchToPLL();
         // Setup PLLQ as 48MHz clock for USB and SDIO
         Clk.EnablePllQOut();
-//        Clk.SetupSai1Qas48MhzSrc();
-        uint32_t tmp = RCC->CCIPR;
-        tmp &= ~RCC_CCIPR_CLK48SEL;
-        tmp |= 0b10UL << 26; // PLLQ is source
+        Clk.Select48MHzClkSrc(src48PllQ);
         // ADC clock = SYSCLK
-        tmp &= ~RCC_CCIPR_ADCSEL;
-        tmp |= 0b11UL << 28; // SYSCLK is ADC clock
-        RCC->CCIPR = tmp;
+        Clk.SelectADCClkSrc(srcAdcSysclk);
     }
-//    Clk.SetupPllSai1(24, 4, 2, 7); // 4MHz * 24 = 96; R = 96 / 4 = 24, Q = 96 / 2 = 48
-//    if(Clk.EnablePllSai1() == retvOk) {
-//        // Setup Sai1R as ADC source
-//        Clk.EnableSai1ROut();
-//        uint32_t tmp = RCC->CCIPR;
-//        tmp &= ~RCC_CCIPR_ADCSEL;
-//        tmp |= 0b01UL << 28; // SAI1R is ADC clock
-//        // Setup Sai1Q as 48MHz source
-//        Clk.EnableSai1QOut();
-//        tmp &= ~RCC_CCIPR_CLK48SEL;
-//        tmp |= 0b01UL << 26;
-//        RCC->CCIPR = tmp;
-//    }
     Clk.UpdateFreqValues();
 
     // Init OS
@@ -140,30 +122,29 @@ int main(void) {
 //    PinUsbDetect.Init();
 //    Buttons::Init();
 //    Charger.Init();
-//    AuPlayer.Init();
+    AuPlayer.Init();
 
 
-//    Esp::Init();
-//    Esp::Start();
-//    EspUart.Init();
+    Esp::Init();
+    Esp::Start();
+    EspUart.Init();
 
     TmrOneSecond.StartOrRestart();
 
     SD.Init();
-    Sai.Init();
-    Sai.SetupSampleRate(16000);
-//    Sai.EnableSAI();
+    Sai.Init(saiModeSlaveTransmitter, saiEdgeFalling);
 
-    for(uint32_t i=0; i<BUF_SZ_FRAME; i++) {
-        Buf[i] = 0x8000c000;
-    }
-    Sai.TransmitBuf(Buf, BUF_SZ_FRAME);
+//    for(uint32_t i=0; i<BUF_SZ_FRAME; i++) {
+//        Buf[i] = 0x8010c100;
+//    }
+//    Sai.TransmitBuf(Buf, BUF_SZ_FRAME);
 
     // Init if SD ok
     if(SD.IsReady) {
         Led.StartOrRestart(lsqStart);
 //        UsbMsd.Init();
-//        AuPlayer.Play("WakeUp.wav", spmSingle);
+//        AuPlayer.Play("WakeUp.wav", );
+        AuPlayer.Play("alive44.wav", spmSingle);
     } // if SD is ready
     else {
         Led.StartOrRestart(lsqFail);
@@ -178,9 +159,9 @@ int main(void) {
 }
 
 
-void OnDmaSaiTxIrqI() {
-    Sai.TransmitBuf(Buf, BUF_SZ_FRAME);
-}
+//void OnDmaSaiTxIrqI() {
+//    Sai.TransmitBuf(Buf, BUF_SZ_FRAME);
+//}
 
 __noreturn
 void ITask() {
@@ -218,15 +199,14 @@ void ITask() {
                     Radio.MustTx = false;
                 }
                 break;
-
+*/
             // ==== Sound ====
             case evtIdAudioPlayStop:
-//                Printf("Snd Done\r");
-                IsPlayingIntro = false;
-                if(MustSleep) EnterSleep();
-                Standby();
+                Printf("Snd Done\r");
+//                IsPlayingIntro = false;
+//                if(MustSleep) EnterSleep();
+//                Standby();
                 break;
-*/
 
             case evtIdBtDevFound:
                 Printf("BT dev found: %S\r", Esp::BtAddr);
@@ -413,7 +393,7 @@ void OnCmd(Shell_t *PShell) {
 //        int32_t v1, v2;
 //        if(PCmd->GetNext<int32_t>(&v1) != retvOk) return;
 //        if(PCmd->GetNext<int32_t>(&v2) != retvOk) return;
-        AuPlayer.PlayAlive();
+        AuPlayer.Play("alive44.wav", spmSingle);
     }
 
     else if(PCmd->NameIs("Sampr")) {
